@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vue-material-kit
+  namespace: monitoring
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vue-material-kit
+  template:
+    metadata:
+      labels:
+        app: vue-material-kit
+    spec:
+      containers:
+        - name: vue-material-kit
+          image: omisam/vue-material-kit:latest
+          ports:
+            - containerPort: 80
