@@ -216,6 +216,9 @@ Setting Up Slack Notifications
 
 * Run the following command to extract AlertManager from the installed Prometheus Stack
 
+
+`kubectl get all --namespace <namespace> | grep alertmanager`
+
 `kubectl get secret -n monitoring`
 
 `kubectl get secret alertmanager-prometheus-kube-prometheus-alertmanager -n <namespace> -o jsonpath='{.data.alertmanager\.yaml}' | base64 --decode > alertmanager.yaml`
