@@ -1,0 +1,82 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Minikube
+        run: |
+          curl -LO https://storage.googleapis.com/minikube/releases/v1.30.0/minikube-darwin-amd64
+          sudo install minikube-darwin-amd64 /usr/local/bin/minikube
+          minikube start --cpus=2 --memory=6000mb || { echo "Failed to start Minikube"; exit 1; }
+
+      - name: Verify Minikube
+        run: kubectl get nodes
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and Push Docker Image for vue-material-kit
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          # Ensure the build context is specified
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/vue-material-kit:latest . || { echo "Docker build failed"; exit 1; }
+          docker push ${{ secrets.DOCKER_USERNAME }}/vue-material-kit:latest || { echo "Docker push failed"; exit 1; }
+
+      - name: Create Monitoring Namespace
+        run: |
+          for ns in monitoring ; do
+            kubectl get namespace $ns > /dev/null 2>&1 || kubectl create namespace $ns
+          done
+
+      - name: Apply Kubernetes Manifests
+        run: |
+          cd kubernetes
+          kubectl apply -f vuekube-deployment.yaml -n monitoring || { echo "Failed to apply deployment manifest"; exit 1; }
+          kubectl apply -f vuekube-service.yaml -n monitoring || { echo "Failed to apply service manifest"; exit 1; }
+
+
+      - name: Install or Upgrade Prometheus with Helm
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || echo "Repository already exists"
+          helm repo update
+          if helm list -n monitoring | grep -q prometheus; then
+             echo "Upgrading existing Prometheus release..."
+             helm upgrade prometheus prometheus-community/kube-prometheus-stack -n monitoring
+          else
+             echo "Installing Prometheus..."
+             helm install prometheus prometheus-community/kube-prometheus-stack -n monitoring
+          fi
+        shell: bash
+
+      - name: Wait for Deployment to be Available
+        run: |
+          kubectl wait --for=condition=available --timeout=300s deployment/vue-material-kit -n monitoring || { echo "Deployment not available"; exit 1; }
+          kubectl get services -n monitoring
+
+      - name: Describe Pods for Debugging
+        run: kubectl describe pods -n monitoring
+
+      - name: Get Events for Debugging
+        run: kubectl get events -n monitoring
+
+#      - name: Stop and Delete Minikube
+#        if: always()
+#        run: minikube delete
